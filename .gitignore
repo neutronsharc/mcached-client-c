@@ -5,7 +5,6 @@
 *.tcov
 .deps
 INSTALL
-Makefile
 Makefile.in
 config.guess
 config.h
