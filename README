@@ -1,0 +1,4 @@
+memcached test program in C API that uses libmemcached.
+
+Can compile and launch with MPI, so that we can use multi-process clients to
+evaluate performance.
