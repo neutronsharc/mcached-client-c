@@ -306,6 +306,9 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
       opset = opget = get_miss = 0;
       max_owrt_lat = -1;
       max_rd_lat = -1;
+
+      owrt_failure = 0;
+      read_failure = 0;
 #ifdef MPI
       MPI_Barrier(MPI_COMM_WORLD);
 #endif
