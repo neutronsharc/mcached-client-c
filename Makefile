@@ -2,7 +2,7 @@
 #mpi = /home/ouyangx/mvapich2/mvapich2/install-1.6-sock
 #mpi = /home/ouyangx/mvapich2/mvapich2/install-1.8-tcp
 #CC = ${mpi}/bin/mpicc -g
-#mpi = mpicc
+mpi = mpicc
 
 libevent = /usr
 #/home/ouyangx/tools/libevent-2.0.20
