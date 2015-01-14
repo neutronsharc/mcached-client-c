@@ -174,12 +174,12 @@ int memcache_set_with_retry(memcached_st *memc, pairs_st *kvpair, int retry) {
     long perclient_numitems = 1000L * 200;
     long perclient_ops = 1000L * 200;
 #else
-    long perclient_numitems = 1000L * 50;
-    long perclient_ops = 1000L * 50;
+    long perclient_numitems = 1000L * 100;
+    long perclient_ops = 1000L * 100;
 #endif
 
 /* Multi-process transaction throughput test. Should run with MPI. */
-int tps_test( memcached_st *memc, int numprocs, int myid ) {
+int tps_test(memcached_st *memc, int numprocs, int myid) {
   int sizes[6] = {1020, 2020, 3010};  // size should minus 2 (exclude "\r\n")
   int num_sizes = 1;  // We will use 1 size as obj size from the above array:  1020
 
@@ -193,6 +193,8 @@ int tps_test( memcached_st *memc, int numprocs, int myid ) {
   long perproc_items= total_numitems / numprocs;  // each procs inserts this many items
   long myops = total_ops / numprocs;   //then, each proc performs this many trans
 
+  int owrt_failure = 0;
+  int read_failure = 0;
   int *owrt_lats = malloc(myops * sizeof(int)); // record latency in us for each overwrite
   int *rd_lats = malloc(myops * sizeof(int)); // record latency in us for each read
   assert(owrt_lats && rd_lats);
@@ -205,14 +207,14 @@ int tps_test( memcached_st *memc, int numprocs, int myid ) {
   uint32_t flags;
   char *value;
   int bufsize = 1024 * 1024; //The upper limit of value data size is 1M.
-  pairs_st *pairs;
+  pairs_st pairs;
 
   if (perproc_items * numprocs < total_numitems &&  myid == 0) {
     perproc_items = total_numitems - perproc_items * (numprocs - 1);
   }
 
   if (myops * numprocs < total_ops &&  myid == 0 ) {
-    myops = total_ops - perproc_items * (numprocs - 1);
+    myops = total_ops - myops * (numprocs - 1);
   }
 
   if(myid == 0) {
@@ -230,10 +232,9 @@ int tps_test( memcached_st *memc, int numprocs, int myid ) {
   gettimeofday(&t1, NULL);
   srand48( t1.tv_usec );
 
-  pairs = (pairs_st*)malloc(sizeof(pairs_st));
-  pairs->key = (char *)malloc(128);
-  pairs->value = (char *)malloc(bufsize);
-  memset(pairs->value, 'a', bufsize );
+  pairs.key = (char *)malloc(128);
+  pairs.value = (char *)malloc(bufsize);
+  memset(pairs.value, 'a', bufsize );
 
   ///////////////////////////////////////////////
   //////////////  0.  create the base data set
@@ -248,21 +249,21 @@ int tps_test( memcached_st *memc, int numprocs, int myid ) {
   gettimeofday(&t1, NULL);
   time_t expireTime = 0;
   for (i = 0; i < perproc_items; i++) {
-    sprintf(pairs->key, "p%d-key-%ld", myid, i);
-    pairs->key_length = strlen(pairs->key);
+    sprintf(pairs.key, "p%d-key-%ld", myid, i);
+    pairs.key_length = strlen(pairs.key);
 
-    sprintf(pairs->value, "value-of-%ld", i);
-    pairs->value_length = sizes[i % num_sizes];
+    sprintf(pairs.value, "value-of-%ld", i);
+    pairs.value_length = sizes[i % num_sizes];
     flags = i;
     /*rc = memcached_set(memc,
                        pairs->key, pairs->key_length,
                        pairs->value, pairs->value_length,
                        expireTime, flags);*/
-    rc = memcache_set_with_retry(memc, pairs, 100);
+    rc = memcache_set_with_retry(memc, &pairs, 0);
     if( rc != 0 ) {
-      fprintf(stderr, "Error::  set, key=%s: val-len=%ld, cet=%d\n",
-              pairs->key, pairs->value_length, rc );
-      exit(0);
+      fprintf(stderr, "Error::  set, key=%s: val-len=%ld, ret = %d\n",
+              pairs.key, pairs.value_length, rc );
+      owrt_failure++;
     }
     if((i + 1) % 100000 == 0) {
       printf("[p_%d]: set %ld items\n", myid, i + 1);
@@ -293,15 +294,14 @@ int tps_test( memcached_st *memc, int numprocs, int myid ) {
     long  max_owrt_lat = -1, max_rd_lat = -1;
     long get_miss = 0;
 
-    for(updateratio = ratio_start; updateratio < ratio_end;
-        updateratio += 0.1) {
+    for(updateratio = ratio_start; updateratio < ratio_end; updateratio += 0.1) {
       thresh = (int)((updateratio * 1000));
       memset(owrt_lats, 0, sizeof(int) * myops);
       memset(rd_lats, 0, sizeof(int) * myops);
 
       if(myid == 0) {
-        fprintf(stderr, "\n***** Each process will run %ld ops, update-ratio %f, thresh=%d\n",
-                myops, updateratio, thresh );
+        fprintf(stderr, "\n***** Each process will run %ld ops, write-ratio %d \%\n",
+                myops, (int)(updateratio * 100), thresh );
       }
       opset = opget = get_miss = 0;
       max_owrt_lat = -1;
@@ -316,22 +316,21 @@ int tps_test( memcached_st *memc, int numprocs, int myid ) {
         if(opselect < thresh) {
           // overwrite the item
           i = get_rand(perproc_items);
-          sprintf(pairs->key, "p%ld-key-%ld", j % numprocs, i);
-          //sprintf(pairs->key, "p%d-key-%ld", myid, i);
-          pairs->key_length = strlen(pairs->key);
-          sprintf(pairs->value, "value-of-%ld", i);
-          pairs->value_length = sizes[i % num_sizes];
+          //sprintf(pairs.key, "p%ld-key-%ld", j % numprocs, i);
+          sprintf(pairs.key, "p%ld-key-%ld", myid, i);
+          pairs.key_length = strlen(pairs.key);
+          sprintf(pairs.value, "value-of-%ld", i);
+          pairs.value_length = sizes[i % num_sizes];
 
           flags = i + 1;
+
           gettimeofday(&tstart, NULL);
-          /*rc = memcached_set(memc,
-                             pairs->key, pairs->key_length,
-                             pairs->value, pairs->value_length,
-                             0, flags);*/
-          rc = memcache_set_with_retry(memc, pairs, 100);
+          rc = memcache_set_with_retry(memc, &pairs, 100);
           gettimeofday(&tend, NULL);
+
           if(rc != MEMCACHED_SUCCESS) {
-            printf("[p_%d]: set failure, val-len=%ld, ret=%d\n", myid, pairs->value_length, rc);
+            printf("[p_%d]: set failure, val-len=%ld, ret=%d\n", myid, pairs.value_length, rc);
+            owrt_failure++;
           }
           tmp = timedif_us(tend, tstart);
           owrt_lats[opset] = (int)tmp;
@@ -340,59 +339,68 @@ int tps_test( memcached_st *memc, int numprocs, int myid ) {
 
         } else {// get-op
           i = get_rand(perproc_items);
-          sprintf(pairs->key, "p%ld-key-%ld", j % numprocs, i);
-          pairs->key_length = strlen(pairs->key);
+          sprintf(pairs.key, "p%ld-key-%ld", myid, i);
+          pairs.key_length = strlen(pairs.key);
           gettimeofday(&tstart, NULL);
           value = memcached_get(memc,
-                                pairs->key, pairs->key_length,
+                                pairs.key, pairs.key_length,
                                 &value_length, &flags, &rc);
           gettimeofday(&tend, NULL);
           if(rc != MEMCACHED_SUCCESS) {
-            //dbg(" [p_%d]: get %s: ret=%d, val-len=%ld, val= \"%s\"\n",
-            //        myid, pairs->key, rc, value_length, value);
             get_miss++;
           } else {
             sscanf(value, "value-of-%ld", &m1);
-            if(value_length > sizes[i % num_sizes]) {
+            if (value_length > sizes[i % num_sizes]) {
               // original version of mc-srv: the len = (real-data-len) + 2 (\r\n)
               value_length -= 2;
             }
-            if (m1 != i || value_length != sizes[i%num_sizes]){
+            if (m1 != i || value_length != sizes[i % num_sizes]){
               printf("[p_%d]: Error!! item-get(%s:%s): %ld:%ld, should be %ld:%d\n",
-                     myid, pairs->key, value, m1, value_length, i, sizes[i % num_sizes]);
+                     myid, pairs.key, value, m1, value_length, i, sizes[i % num_sizes]);
+              read_failure++;
             }
-            tmp = timedif_us(tend, tstart); // tmp in milisec
-            max_rd_lat = (max_rd_lat > tmp) ? max_rd_lat : tmp;
           }
-          tmp = timedif_us(tend, tstart); // tmp in milisec
+          tmp = timedif_us(tend, tstart); // tmp in micro-sec
           rd_lats[opget] = (int)tmp;
+          max_rd_lat = (max_rd_lat > tmp) ? max_rd_lat : tmp;
           opget++;
         }
 
         if ((j + 1) % 100000 == 0) {
-          printf("[p_%d]: tps run: has done %ld items\n", myid, j + 1);
+          printf("[p_%d]: has run %ld ops\n", myid, j + 1);
         }
       }
 
       gettimeofday(&t2, NULL);
       tus = (t2.tv_sec - t1.tv_sec) * 1000000 + (t2.tv_usec - t1.tv_usec);
-      double  tps = myops / (tus / 1000000.0);
+      double tps = myops / (tus / 1000000.0);
       double alltps = 0;
       long allset, allget, allmiss;
+      long all_read_failure = 0;
+      long all_owrt_failure = 0;
 #ifdef MPI
       MPI_Reduce(&tps, &alltps, 1, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD);
       MPI_Reduce(&opset, &allset, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
       MPI_Reduce(&opget, &allget, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
       MPI_Reduce(&get_miss, &allmiss, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+      MPI_Reduce(&read_failure, &all_read_failure, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+      MPI_Reduce(&owrt_failure, &all_owrt_failure, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
 #endif
       if(myid == 0) {
 #ifdef MPI
-      fprintf(stderr, "-------- Intotal:  %ld overwrite, %ld get, %ld get-miss, total-tps= %d op/s\n", 
-              allset, allget, allmiss, (int)(alltps));
+      fprintf(stderr, "-------- In total:  write ratio %d \%\n"
+              "%ld get, %ld write, %ld get-miss, total-tps= %d op/s, "
+              "%ld read failure, %ld write failure\n",
+              (int)(updateratio * 100),
+              allget, allset, allmiss, (int)(alltps),
+              all_read_failure, all_owrt_failure);
 #endif
-      fprintf(stderr, "[p_%d]: %ld ops, overwrite-ratio = %.3f "
-              "(%ld overwrite, %ld get, %ld get-miss): total-time= %f sec, tps = %.3f op/s\n",
-              myid, myops, updateratio, opset, opget, get_miss, tus / 1000000.0, tps);
+      fprintf(stderr, "[p_%d]: %ld ops, %ld overwrite, %ld get, %ld get-miss, "
+              "%ld read failure, %ld write failure: \n"
+              "total-time= %f sec, tps = %.3f op/s\n",
+              myid, myops, opset, opget, get_miss,
+              read_failure, owrt_failure,
+              tus / 1000000.0, tps);
     }
 
     // sort rd_lats[] and owrt_lats[], get: 50%, 90%, 95%, 99%, 99.9% latencies
@@ -405,7 +413,7 @@ int tps_test( memcached_st *memc, int numprocs, int myid ) {
       rd_lat95 = rd_lats[(int)(opget * 0.95)];
       rd_lat99 = rd_lats[(int)(opget * 0.99)];
       rd_lat999 = rd_lats[(int)(opget * 0.999)];
-      fprintf(stderr, "[p-%d]: percentile read lat(ms): 50\% = %.3f, 90\% = "
+      fprintf(stderr, "[p-%d]: read lat (ms): 50\% = %.3f, 90\% = "
               "%.3f, 95\% = %.3f, "
               "99\% = %.3f, 99.9\% = %.3f, maxlat= %.3f\n",
               myid, rd_lat50/1000.0, rd_lat90/1000.0, rd_lat95/1000.0,
@@ -421,7 +429,7 @@ int tps_test( memcached_st *memc, int numprocs, int myid ) {
       owrt_lat95 = owrt_lats[(int)(opset * 0.95)];
       owrt_lat99 = owrt_lats[(int)(opset * 0.99)];
       owrt_lat999 = owrt_lats[(int)(opset * 0.999)];
-      fprintf(stderr, "[p-%d]: owrt_lat(ms): 50\% = %.3f, 90\% = %.3f, 95\% = %.3f, "
+      fprintf(stderr, "[p-%d]: write_lat (ms): 50\% = %.3f, 90\% = %.3f, 95\% = %.3f, "
               "99\% = %.3f, 99.9\% = %.3f, maxlat= %.3f\n",
               myid, owrt_lat50/1000.0, owrt_lat90/1000.0, owrt_lat95/1000.0,
               owrt_lat99/1000.0, owrt_lat999/1000.0, max_owrt_lat/1000.0);
@@ -431,9 +439,8 @@ int tps_test( memcached_st *memc, int numprocs, int myid ) {
 
    }
 
-   free(pairs->key);
-   free(pairs->value);
-   free(pairs);
+   free(pairs.key);
+   free(pairs.value);
    free(owrt_lats);
    free(rd_lats);
 
