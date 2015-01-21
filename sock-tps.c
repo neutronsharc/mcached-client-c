@@ -174,8 +174,8 @@ int memcache_set_with_retry(memcached_st *memc, pairs_st *kvpair, int retry) {
     long perclient_numitems = 1000L * 200;
     long perclient_ops = 1000L * 200;
 #else
-    long perclient_numitems = 1000L * 100;
-    long perclient_ops = 1000L * 100;
+    long perclient_numitems = 1000L * 1000;
+    long perclient_ops = 1000L * 1000;
 #endif
 
 /* Multi-process transaction throughput test. Should run with MPI. */
@@ -205,7 +205,6 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
   double tus;
   size_t value_length = 0;
   uint32_t flags;
-  char *value;
   int bufsize = 1024 * 1024; //The upper limit of value data size is 1M.
   pairs_st pairs;
 
@@ -328,7 +327,7 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
           flags = i + 1;
 
           gettimeofday(&tstart, NULL);
-          rc = memcache_set_with_retry(memc, &pairs, 100);
+          rc = memcache_set_with_retry(memc, &pairs, 0);
           gettimeofday(&tend, NULL);
 
           if(rc != MEMCACHED_SUCCESS) {
@@ -345,25 +344,29 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
           sprintf(pairs.key, "p%ld-key-%ld", myid, i);
           pairs.key_length = strlen(pairs.key);
           gettimeofday(&tstart, NULL);
-          value = memcached_get(memc,
+          char *tmpvalue = NULL;
+          tmpvalue = memcached_get(memc,
                                 pairs.key, pairs.key_length,
                                 &value_length, &flags, &rc);
           gettimeofday(&tend, NULL);
           if(rc != MEMCACHED_SUCCESS) {
             get_miss++;
           } else {
-            sscanf(value, "value-of-%ld", &m1);
+            sscanf(tmpvalue, "value-of-%ld", &m1);
             if (value_length > sizes[i % num_sizes]) {
               // original version of mc-srv: the len = (real-data-len) + 2 (\r\n)
               value_length -= 2;
             }
             if (m1 != i || value_length != sizes[i % num_sizes]){
               printf("[p_%d]: Error!! item-get(%s:%s): %ld:%ld, should be %ld:%d\n",
-                     myid, pairs.key, value, m1, value_length, i, sizes[i % num_sizes]);
+                     myid, pairs.key, tmpvalue, m1, value_length, i, sizes[i % num_sizes]);
               read_failure++;
             }
           }
           tmp = timedif_us(tend, tstart); // tmp in micro-sec
+          if (tmpvalue != NULL) {
+            free(tmpvalue);
+          }
           rd_lats[opget] = (int)tmp;
           max_rd_lat = (max_rd_lat > tmp) ? max_rd_lat : tmp;
           opget++;
