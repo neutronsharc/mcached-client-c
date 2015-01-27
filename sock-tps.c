@@ -1,15 +1,3 @@
-/* LibMemcached
- * Copyright (C) 2006-2009 Brian Aker
- * All rights reserved.
- *
- * Use and distribution licensed under the BSD license.  See
- * the COPYING file in the parent directory for full text.
- *
- * Summary:
- *
- */
-
-//#include "config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -184,15 +172,8 @@ int memcached_multi_get(memcached_st *memc,
   return getObjs;
 }
 
-#if 0
-    long perclient_numitems = 1000L * 200;
-    long perclient_ops = 1000L * 200;
-#else
-    //long perclient_numitems = 1000L * 1000;
-    //long perclient_ops = 1000L * 1000;
-#endif
 
-/* Multi-process transaction throughput test. Should run with MPI. */
+// Multi-process transaction throughput test.
 int tps_test(memcached_st *memc, int numprocs, int myid) {
   int sizes[6] = {1020, 2020, 3010};  // size should minus 2 (exclude "\r\n")
   int num_sizes = 1;  // We will use 1 size as obj size from the above array:  1020
