@@ -170,6 +170,23 @@ int memcache_set_with_retry(memcached_st *memc, pairs_st *kvpair, int retry) {
   return -1;
 }
 
+int memcached_multi_get(memcached_st *memc,
+                        char* keys[],
+                        size_t keysLength[]
+                        int numKeys,
+                        char* retValues[],
+                        size_t valuesLength[]) {
+  memcached_return_t rc;
+  rc = memcached_mget(memc, keys, keysLength, numKeys);
+
+  if (rc != MEMCACHED_SUCCESS) {
+    printf("multi-get ret %s\n", );
+
+  }
+
+
+}
+
 #if 0
     long perclient_numitems = 1000L * 200;
     long perclient_ops = 1000L * 200;
@@ -521,7 +538,6 @@ int main(int argc, char *argv[])
     memcached_return_t  rc;
 
     int sockfd;
-    int i;
 
     int return_code= 0;
 
@@ -546,13 +562,12 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-	/*
-	 the serv string is:  "srvhost:port,srvhost:port,srvhost:port".
-	 Or,
-	memcached_server_st * memcached_server_list_append(
-		memcached_server_st* existing, char* hostname, int port,
-		memcached_return_t *rc);
-	*/
+	// the server string is:  "srvhost:port,srvhost:port,srvhost:port".
+	// Or,
+	//   memcached_server_st * memcached_server_list_append(
+  //          memcached_server_st* existing,
+  //          char* hostname, int port,
+  //          memcached_return_t *rc);
     if (opt_servers) {
         servers= memcached_servers_parse(opt_servers);
     }
@@ -561,12 +576,12 @@ int main(int argc, char *argv[])
     }
 
     // add list of servers to the mc-struct
-    i = memcached_server_count(memc);
     memcached_server_push(memc, servers);
-    i = memcached_server_count(memc);
-    printf("will talk with %d servers...\n", i);
+    int numServers = memcached_server_count(memc);
+    printf("will talk with %d servers...\n", numServers);
 
     memcached_server_list_free(servers);
+
     // change mc behaviors...
     if (opt_binary) {
         rc = memcached_behavior_set(memc, MEMCACHED_BEHAVIOR_BINARY_PROTOCOL, 1);
