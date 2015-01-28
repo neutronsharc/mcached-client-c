@@ -625,12 +625,13 @@ static void help()
   printf("Benchmark Memcached servers performance\n"
          "-s <s1:p1,s2:p2,...> : a list of servers\n"
          "-n <num>             : each client works on this many objects. "
-         "Each obj is 1KB size.\n"
+         "                       Each obj is 1KB size.\n"
          "-w                   : Create/write objects upfront.\n"
          "-m <0.x>             : write mix ratio of the benchmark. 0 is read only,\n"
          "                       0.1 is 10%% write, 1 is 100%% write.\n"
          "                       Giving a negative value will cause clients to\n"
          "                       repeat benchmark varying write ratio from 0\n"
          "                       to 1 at 0.1 step.\n"
+         "-k <mget>            : number of keys in one get()\n"
          "-h                   : this message.\n");
 }
