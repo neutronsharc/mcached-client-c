@@ -106,6 +106,8 @@ static unsigned long get_rand(unsigned long max_val) {
  * -1 if failed even after retries.
  */
 int memcache_set_with_retry(memcached_st *memc, KVPair *kvpair, int retry) {
+  // Usually 5 retries are enough even if the server is heavily stalled.
+  retry = 100;
   memcached_return_t rc;
   int expireTime = 0;
   int flags = 0;
@@ -206,11 +208,11 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
 
   if (writeMixRatio >=0) {
     ratio_start = writeMixRatio;
-    ratio_end = writeMixRatio;
+    ratio_end = writeMixRatio + 0.02; // doube precison can error with 0.xxx1
   }
   if(myid == 0) {
     fprintf(stderr, "\n\n***********\nTotal objects %ld, total op %ld, each "
-            "client creates %ld objs, then r/w %ld objs, write-ratio=(%f ~ %f)\n",
+            "client creates %ld objs, then runs %ld ops, write-ratio=(%f ~ %f)\n",
             total_numitems, total_ops,  perproc_items, myops, ratio_start, ratio_end);
     for(i = 0; i < num_sizes; i++) {
       fprintf(stderr, "\teach obj size[%ld]=%d\n", i, sizes[i]);
@@ -251,7 +253,7 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
       sprintf(pairs.value, "value-of-%ld", i);
       pairs.value_length = sizes[i % num_sizes];
       flags = i;
-      rc = memcache_set_with_retry(memc, &pairs, 0);
+      rc = memcache_set_with_retry(memc, &pairs, 1);
       if( rc != 0 ) {
         fprintf(stderr, "Error::  set, key=%s: val-len=%ld, ret = %d\n",
                 pairs.key, pairs.value_length, rc );
@@ -320,7 +322,7 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
           flags = i + 1;
 
           gettimeofday(&tstart, NULL);
-          rc = memcache_set_with_retry(memc, &pairs, 0);
+          rc = memcache_set_with_retry(memc, &pairs, 1);
           gettimeofday(&tend, NULL);
 
           if(rc != MEMCACHED_SUCCESS) {
