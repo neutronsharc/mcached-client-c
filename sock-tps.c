@@ -295,14 +295,13 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
 
     ///////////////////////////////////////////////
     /////////////   1. transaction test ( set or get )
-    struct timeval tstart, tend;
     unsigned long opStartTimeUs, opTimeUs;
 
     int opselect = 0;
     int thresh;
     long opset = 0, opget = 0, m1 = 0;
     long tmp;
-    long max_write_lat = -1, max_rd_lat = -1;
+    unsigned long max_write_lat = 0, max_rd_lat = 0;
     long get_miss = 0;
 
     for(updateratio = ratio_start; updateratio < ratio_end; updateratio += 0.1) {
@@ -318,8 +317,8 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
                         perClientTargetQPS);
       }
       opset = opget = get_miss = 0;
-      max_write_lat = -1;
-      max_rd_lat = -1;
+      max_write_lat = 0;
+      max_rd_lat = 0;
 
       write_failure = 0;
       read_failure = 0;
