@@ -12,8 +12,15 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <assert.h>
+#include <time.h>
 
 #include "utilities.h"
+
+unsigned long time_microsec() {
+  struct timespec t;
+  clock_gettime(CLOCK_MONOTONIC, &t);
+  return t.tv_sec * 1000000 + t.tv_nsec / 1000;
+}
 
 long timedif_us(struct timeval end, struct timeval start) {
   long s = end.tv_sec - start.tv_sec;

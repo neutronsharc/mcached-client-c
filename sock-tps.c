@@ -43,6 +43,9 @@ static float updateratio = -1;
 // how many keys to get in one get() call.
 static int numKeysInOneGet = 1;
 
+// Each client tries to achieve this QPS.  Use this to throttle client requests.
+static long perClientTargetQPS = 1000;
+
 #define MAX_KEYS_IN_ONE_GET (256)
 
 typedef struct KVPair KVPair;
@@ -99,6 +102,15 @@ static unsigned long get_rand(unsigned long max_val) {
   return v % max_val;
 }
 
+// Throttle to target QPS.
+void ThrottleForQPS(long targetQPS, unsigned long startUs, long opsSinceStart) {
+  unsigned long actualSpentTimeUs = time_microsec() - startUs;
+  unsigned long targetSpentTimeUs =
+    (unsigned long)(opsSinceStart * 1000000 / targetQPS);
+  if (actualSpentTimeUs < targetSpentTimeUs) {
+    usleep(targetSpentTimeUs - actualSpentTimeUs);
+  }
+}
 
 /*
  * memcached-set with retry.
@@ -269,12 +281,14 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
     gettimeofday(&t2, NULL);
     tus = timedif_us(t2, t1);
     if (myid == 0) {
-      fprintf(stderr, "[p_%d]: Each process has created %ld objs, total %ld objs, "
-              "total-time = %.3f sec\n",
-              myid, perproc_items, total_numitems, tus / 1000000.0);
-      fprintf(stderr, "total set obj size = %.3f MB, tps = %.3f op/sec\n\n\n",
-              total_numitems * sizes[0] / 1024.0 / 1024,
-              total_numitems / (tus / 1000000.0));
+      fprintf(stderr, "Upfront Write: each process has created %ld objs, "
+                      "total %ld objs, total-time = %.3f sec\n",
+                      perproc_items,
+                      total_numitems,
+                      tus / 1000000.0);
+      fprintf(stderr, "\t\ttotal write obj size = %.3f MB, tps = %.3f op/sec\n\n\n",
+                      total_numitems * sizes[0] / 1024.0 / 1024,
+                      total_numitems / (tus / 1000000.0));
     }
   }
 
@@ -294,8 +308,11 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
       memset(rd_lats, 0, sizeof(int) * myops);
 
       if(myid == 0) {
-        fprintf(stderr, "\n***** Each process will run %ld cmds, write-ratio %d %%\n",
-                myops, (int)(updateratio * 100));
+        fprintf(stderr, "\n\n***** Each process will run %ld cmds, "
+                        "write-ratio %d %%, target QPS = %ld\n",
+                        myops,
+                        (int)(updateratio * 100),
+                        perClientTargetQPS);
       }
       opset = opget = get_miss = 0;
       max_write_lat = -1;
@@ -306,6 +323,7 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
 #ifdef MPI
       MPI_Barrier(MPI_COMM_WORLD);
 #endif
+      unsigned long startTimeUs = time_microsec();
       gettimeofday(&t1, NULL);
       for(j = 0; j < myops; j++) {
         // select operation type: the "opselect" is in [0, 1000)
@@ -333,8 +351,10 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
           write_lats[opset] = (int)tmp;
           max_write_lat = (max_write_lat > tmp) ? max_write_lat : tmp;
           opset++;
-
-        } else {// get-op
+          // Rate limit to target qps.
+          ThrottleForQPS(perClientTargetQPS, startTimeUs, j + 1);
+        } else {
+          // get-op
           if (numKeysInOneGet > 1) {
             int k;
             for (k = 0; k < numKeysInOneGet; k++) {
@@ -380,6 +400,8 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
           rd_lats[opget] = (int)tmp;
           max_rd_lat = (max_rd_lat > tmp) ? max_rd_lat : tmp;
           opget++;
+          // Rate limit to target qps.
+          ThrottleForQPS(perClientTargetQPS, startTimeUs, j + 1);
         }
 
         if ((j + 1) % 500000 == 0) {
@@ -535,7 +557,7 @@ int main(int argc, char *argv[]) {
   }
 
   int c;
-  while((c = getopt(argc, argv, "s:n:m:k:wh")) != EOF) {
+  while((c = getopt(argc, argv, "s:n:m:k:q:wh")) != EOF) {
     switch(c) {
       case 's':
         opt_servers = strdup(optarg);
@@ -557,6 +579,10 @@ int main(int argc, char *argv[]) {
         numKeysInOneGet = atoi(optarg);
         printf("fetch %d objs in one get()\n", numKeysInOneGet);
         assert(numKeysInOneGet <= MAX_KEYS_IN_ONE_GET);
+        break;
+      case 'q':
+        perClientTargetQPS = atol(optarg);
+        printf("each client target qps = %ld\n", perClientTargetQPS);
         break;
       case 'h':
         help();
@@ -626,7 +652,7 @@ static void help()
 {
   printf("Benchmark Memcached servers performance\n"
          "-s <s1:p1,s2:p2,...> : a list of servers\n"
-         "-n <num>             : each client works on this many objects. "
+         "-n <num>             : each client works on this many objects.\n"
          "                       Each obj is 1KB size.\n"
          "-w                   : Create/write objects upfront.\n"
          "-m <0.x>             : write mix ratio of the benchmark. 0 is read only,\n"
@@ -635,5 +661,6 @@ static void help()
          "                       repeat benchmark varying write ratio from 0\n"
          "                       to 1 at 0.1 step.\n"
          "-k <mget>            : number of keys in one get()\n"
+         "-q <qps>             : each client target QPS.\n"
          "-h                   : this message.\n");
 }
