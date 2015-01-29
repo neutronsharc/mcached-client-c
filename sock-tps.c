@@ -97,14 +97,14 @@ static int client_connect(const char* server_name) {
 }
 
 
-static unsigned long get_rand(unsigned long max_val) {
+static unsigned long GetRandom(unsigned long max_val) {
   long v = lrand48();
   return v % max_val;
 }
 
 // Throttle to target QPS.
 void ThrottleForQPS(long targetQPS, unsigned long startUs, long opsSinceStart) {
-  unsigned long actualSpentTimeUs = time_microsec() - startUs;
+  unsigned long actualSpentTimeUs = TimeNowInUs() - startUs;
   unsigned long targetSpentTimeUs =
     (unsigned long)(opsSinceStart * 1000000 / targetQPS);
   if (actualSpentTimeUs < targetSpentTimeUs) {
@@ -246,6 +246,7 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
     mgetKeys[i] = (char*)malloc(MEMCACHED_MAX_KEY);
   }
 
+  unsigned long startTimeUs;
   ///////////////////////////////////////////////
   //////////////  0.  create the base data set
   if (createObjects) {
@@ -256,8 +257,7 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
 #ifdef MPI
     MPI_Barrier(MPI_COMM_WORLD);
 #endif
-    gettimeofday(&t1, NULL);
-    time_t expireTime = 0;
+    startTimeUs = TimeNowInUs();
     for (i = 0; i < perproc_items; i++) {
       sprintf(pairs.key, "p%d-key-%ld", myid, i);
       pairs.key_length = strlen(pairs.key);
@@ -274,12 +274,13 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
       if((i + 1) % 500000 == 0) {
         printf("[p_%d]: set %ld items\n", myid, i + 1);
       }
+      // Rate limit to target qps.
+      ThrottleForQPS(perClientTargetQPS, startTimeUs, i + 1);
     }
 #ifdef MPI
     MPI_Barrier(MPI_COMM_WORLD);
 #endif
-    gettimeofday(&t2, NULL);
-    tus = timedif_us(t2, t1);
+    tus = TimeNowInUs() - startTimeUs;
     if (myid == 0) {
       fprintf(stderr, "Upfront Write: each process has created %ld objs, "
                       "total %ld objs, total-time = %.3f sec\n",
@@ -295,6 +296,8 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
     ///////////////////////////////////////////////
     /////////////   1. transaction test ( set or get )
     struct timeval tstart, tend;
+    unsigned long opStartTimeUs, opTimeUs;
+
     int opselect = 0;
     int thresh;
     long opset = 0, opget = 0, m1 = 0;
@@ -323,14 +326,14 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
 #ifdef MPI
       MPI_Barrier(MPI_COMM_WORLD);
 #endif
-      unsigned long startTimeUs = time_microsec();
+      startTimeUs = TimeNowInUs();
       gettimeofday(&t1, NULL);
       for(j = 0; j < myops; j++) {
         // select operation type: the "opselect" is in [0, 1000)
-        opselect = get_rand(1000000);
+        opselect = GetRandom(1000000);
         if (opselect < thresh) {
           // do a write.
-          i = get_rand(perproc_items);
+          i = GetRandom(perproc_items);
           sprintf(pairs.key, "p%d-key-%ld", myid, i);
           pairs.key_length = strlen(pairs.key);
           memset(pairs.value, 0, 1020);
@@ -339,17 +342,16 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
 
           flags = i + 1;
 
-          gettimeofday(&tstart, NULL);
+          opStartTimeUs = TimeNowInUs();
           rc = memcache_set_with_retry(memc, &pairs, 1);
-          gettimeofday(&tend, NULL);
 
           if(rc != MEMCACHED_SUCCESS) {
             printf("[p_%d]: set failure, val-len=%ld, ret=%d\n", myid, pairs.value_length, rc);
             write_failure++;
           }
-          tmp = timedif_us(tend, tstart);
-          write_lats[opset] = (int)tmp;
-          max_write_lat = (max_write_lat > tmp) ? max_write_lat : tmp;
+          opTimeUs = TimeNowInUs() - opStartTimeUs;
+          write_lats[opset] = (int)opTimeUs;
+          max_write_lat = (max_write_lat > opTimeUs) ? max_write_lat : opTimeUs;
           opset++;
           // Rate limit to target qps.
           ThrottleForQPS(perClientTargetQPS, startTimeUs, j + 1);
@@ -358,26 +360,26 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
           if (numKeysInOneGet > 1) {
             int k;
             for (k = 0; k < numKeysInOneGet; k++) {
-              i = get_rand(perproc_items);
+              i = GetRandom(perproc_items);
               sprintf(mgetKeys[k], "p%d-key-%ld", myid, i);
               keysLength[k] = strlen(mgetKeys[k]);
             }
-            gettimeofday(&tstart, NULL);
+            opStartTimeUs = TimeNowInUs();
             int hits = memcached_multi_get(memc, mgetKeys, keysLength, numKeysInOneGet);
-            gettimeofday(&tend, NULL);
+            opTimeUs = TimeNowInUs() - opStartTimeUs;
             if (hits < numKeysInOneGet) {
               get_miss += (numKeysInOneGet - hits);
             }
           } else {
-            i = get_rand(perproc_items);
+            i = GetRandom(perproc_items);
             sprintf(pairs.key, "p%d-key-%ld", myid, i);
             pairs.key_length = strlen(pairs.key);
-            gettimeofday(&tstart, NULL);
+            opStartTimeUs = TimeNowInUs();
             char *tmpvalue = NULL;
             tmpvalue = memcached_get(memc,
                                      pairs.key, pairs.key_length,
                                      &value_length, &flags, &rc);
-            gettimeofday(&tend, NULL);
+            opTimeUs = TimeNowInUs() - opStartTimeUs;
             if(rc != MEMCACHED_SUCCESS) {
               get_miss++;
             } else {
@@ -396,9 +398,8 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
               free(tmpvalue);
             }
           }
-          tmp = timedif_us(tend, tstart); // tmp in micro-sec
-          rd_lats[opget] = (int)tmp;
-          max_rd_lat = (max_rd_lat > tmp) ? max_rd_lat : tmp;
+          rd_lats[opget] = (int)opTimeUs;
+          max_rd_lat = (max_rd_lat > opTimeUs) ? max_rd_lat : opTimeUs;
           opget++;
           // Rate limit to target qps.
           ThrottleForQPS(perClientTargetQPS, startTimeUs, j + 1);
@@ -409,9 +410,8 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
         }
       }
 
-      gettimeofday(&t2, NULL);
-      tus = timedif_us(t2, t1);
-      double tps = myops / (tus / 1000000.0);
+      tus = TimeNowInUs() - startTimeUs;
+      double tps = myops * 1000000.0 / tus;
       double alltps = 0;
       long allset, allget, allmiss;
       long all_read_failure = 0;

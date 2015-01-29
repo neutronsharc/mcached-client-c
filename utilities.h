@@ -4,7 +4,7 @@
 #include <sys/time.h>
 
 
-unsigned long time_microsec();
+unsigned long TimeNowInUs();
 
 long timedif_us(struct timeval end, struct timeval start);
 unsigned long sort_ascend_int(int *array, int begin, int end);
