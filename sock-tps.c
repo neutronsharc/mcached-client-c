@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <assert.h>
+#include <bsd/stdlib.h>
 
 #include <libmemcached/memcached.h>
 
@@ -46,6 +47,9 @@ static int numKeysInOneGet = 1;
 // Each client tries to achieve this QPS.  Use this to throttle client requests.
 static long perClientTargetQPS = 1000;
 
+// Each obj size in bytes.
+static int objSize = 1010;
+
 #define MAX_KEYS_IN_ONE_GET (256)
 
 typedef struct KVPair KVPair;
@@ -55,6 +59,23 @@ struct KVPair{
     char *value;
     size_t value_length;
 };
+
+static void help()
+{
+  printf("Benchmark Memcached servers performance\n"
+         "-s <s1:p1,s2:p2,...> : a list of servers. Must provide.\n"
+         "-n <num>             : each client works on this many objects.\n"
+         "                       Def = 1000.\n"
+         "-w                   : Create/write objects upfront. Default not.\n"
+         "-m <0.x>             : write mix ratio of the benchmark. 0 is read only,\n"
+         "                       0.1 is 10%% write, 1 is 100%% write.\n"
+         "                       Giving a negative value will cause clients to\n"
+         "                       repeat benchmark varying write ratio from 0\n"
+         "                       to 1 at 0.1 step. Def = -1.\n"
+         "-k <mget>            : number of keys in one get(). Def = 1.\n"
+         "-q <qps>             : each client target QPS. Def = 1000.\n"
+         "-h                   : this message.\n");
+}
 
 
 // Connect to server host at PORT.
@@ -173,12 +194,12 @@ int memcached_multi_get(memcached_st *memc,
                                          &flags,
                                          &rc))) {
     getObjs++;
-    int pid;
+    int idInKey, idInValue;
     long vInKey, vInValue;
     return_key[return_key_length] = 0;
-    sscanf(return_key, "p%d-key-%ld", &pid, &vInKey);
-    sscanf(return_value, "value-of-%ld", &vInValue);
-    if (vInValue != vInKey) {
+    sscanf(return_key, "task-%d-key-%ld", &idInKey, &vInKey);
+    sscanf(return_value, "task-%d-value-%ld", &idInValue, &vInValue);
+    if (idInKey != idInValue || vInKey != vInValue) {
       printf("mget error: key = %s, value = %s\n", return_key, return_value);
     }
     free(return_value);
@@ -189,7 +210,7 @@ int memcached_multi_get(memcached_st *memc,
 
 // Multi-process transaction throughput test.
 int tps_test(memcached_st *memc, int numprocs, int myid) {
-  int sizes[6] = {1020, 2020, 3010};  // size should minus 2 (exclude "\r\n")
+  //int sizes[6] = {1020, 2020, 3010};  // size should minus 2 (exclude "\r\n")
   int num_sizes = 1;  // We will use 1 size as obj size from the above array:  1020
 
   long total_numitems = perClientObjs * numprocs;
@@ -226,9 +247,7 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
     fprintf(stderr, "\n\n***********\nTotal objects %ld, total op %ld, each "
             "client creates %ld objs, then runs %ld ops, write-ratio=(%f ~ %f)\n",
             total_numitems, total_ops,  perproc_items, myops, ratio_start, ratio_end);
-    for(i = 0; i < num_sizes; i++) {
-      fprintf(stderr, "\teach obj size[%ld]=%d\n", i, sizes[i]);
-    }
+    fprintf(stderr, "\teach obj size = %d\n", objSize);
   }
 
   ////////////////////////////////////////////////////////////////
@@ -252,18 +271,19 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
   if (createObjects) {
     if(myid == 0) {
       fprintf(stderr, "[p_%d]: Each proc will create %ld objs upfront, obj-size=%d\n",
-              myid, perproc_items, sizes[0] );
+              myid, perproc_items, objSize);
     }
 #ifdef MPI
     MPI_Barrier(MPI_COMM_WORLD);
 #endif
     startTimeUs = TimeNowInUs();
     for (i = 0; i < perproc_items; i++) {
-      sprintf(pairs.key, "p%d-key-%ld", myid, i);
+      sprintf(pairs.key, "task-%d-key-%ld", myid, i);
       pairs.key_length = strlen(pairs.key);
 
-      sprintf(pairs.value, "value-of-%ld", i);
-      pairs.value_length = sizes[i % num_sizes];
+      arc4random_buf(pairs.value, objSize);
+      sprintf(pairs.value, "task-%d-value-%ld", myid, i);
+      pairs.value_length = objSize;
       flags = i;
       rc = memcache_set_with_retry(memc, &pairs, 1);
       if( rc != 0 ) {
@@ -288,7 +308,7 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
                       total_numitems,
                       tus / 1000000.0);
       fprintf(stderr, "\t\ttotal write obj size = %.3f MB, tps = %.3f op/sec\n\n\n",
-                      total_numitems * sizes[0] / 1024.0 / 1024,
+                      total_numitems * objSize / 1024.0 / 1024,
                       total_numitems / (tus / 1000000.0));
     }
   }
@@ -299,7 +319,7 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
 
     int opselect = 0;
     int thresh;
-    long opset = 0, opget = 0, m1 = 0;
+    long opset = 0, opget = 0;
     long tmp;
     unsigned long max_write_lat = 0, max_rd_lat = 0;
     long get_miss = 0;
@@ -333,11 +353,11 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
         if (opselect < thresh) {
           // do a write.
           i = GetRandom(perproc_items);
-          sprintf(pairs.key, "p%d-key-%ld", myid, i);
+          sprintf(pairs.key, "task-%d-key-%ld", myid, i);
           pairs.key_length = strlen(pairs.key);
-          memset(pairs.value, 0, 1020);
-          sprintf(pairs.value, "value-of-%ld", i);
-          pairs.value_length = sizes[i % num_sizes];
+          arc4random_buf(pairs.value, objSize);
+          sprintf(pairs.value, "task-%d-value-%ld", myid, i);
+          pairs.value_length = objSize;
 
           flags = i + 1;
 
@@ -360,7 +380,7 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
             int k;
             for (k = 0; k < numKeysInOneGet; k++) {
               i = GetRandom(perproc_items);
-              sprintf(mgetKeys[k], "p%d-key-%ld", myid, i);
+              sprintf(mgetKeys[k], "task-%d-key-%ld", myid, i);
               keysLength[k] = strlen(mgetKeys[k]);
             }
             opStartTimeUs = TimeNowInUs();
@@ -371,7 +391,7 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
             }
           } else {
             i = GetRandom(perproc_items);
-            sprintf(pairs.key, "p%d-key-%ld", myid, i);
+            sprintf(pairs.key, "task-%d-key-%ld", myid, i);
             pairs.key_length = strlen(pairs.key);
             opStartTimeUs = TimeNowInUs();
             char *tmpvalue = NULL;
@@ -382,14 +402,17 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
             if(rc != MEMCACHED_SUCCESS) {
               get_miss++;
             } else {
-              sscanf(tmpvalue, "value-of-%ld", &m1);
-              if (value_length > sizes[i % num_sizes]) {
+              int tmpid;
+              long m1;
+              sscanf(tmpvalue, "task-%d-value-%ld", &tmpid, &m1);
+              if (value_length > objSize) {
                 // original version of mc-srv: the len = (real-data-len) + 2 (\r\n)
                 value_length -= 2;
               }
-              if (m1 != i || value_length != sizes[i % num_sizes]){
+              if (m1 != i || value_length != objSize) {
+                //sizes[i % num_sizes]){
                 printf("[p_%d]: Error!! item-get(%s:%s): %ld:%ld, should be %ld:%d\n",
-                       myid, pairs.key, tmpvalue, m1, value_length, i, sizes[i % num_sizes]);
+                       myid, pairs.key, tmpvalue, m1, value_length, i, objSize);
                 read_failure++;
               }
             }
@@ -647,19 +670,3 @@ int main(int argc, char *argv[]) {
   return 0;
 }
 
-static void help()
-{
-  printf("Benchmark Memcached servers performance\n"
-         "-s <s1:p1,s2:p2,...> : a list of servers\n"
-         "-n <num>             : each client works on this many objects.\n"
-         "                       Each obj is 1KB size.\n"
-         "-w                   : Create/write objects upfront.\n"
-         "-m <0.x>             : write mix ratio of the benchmark. 0 is read only,\n"
-         "                       0.1 is 10%% write, 1 is 100%% write.\n"
-         "                       Giving a negative value will cause clients to\n"
-         "                       repeat benchmark varying write ratio from 0\n"
-         "                       to 1 at 0.1 step.\n"
-         "-k <mget>            : number of keys in one get()\n"
-         "-q <qps>             : each client target QPS.\n"
-         "-h                   : this message.\n");
-}

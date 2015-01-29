@@ -24,7 +24,7 @@ LDFLAGS = -g
 #-D_GNU_SOURCE -D_FILE_OFFSET_BITS=64
 #LDFLAGS = -L${libevent}/lib -L${libsasl}/lib -L/usr/lib
 
-LIBS = -lmemcached -lrt -ldl
+LIBS = -lmemcached -lrt -ldl -lbsd
 
 #mpicc -DMPI sock-tps.c utilities.c -lmemcached -lpthread -o sock-tps
 
