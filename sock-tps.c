@@ -51,7 +51,7 @@ static int numKeysInOneGet = 1;
 static long perClientTargetQPS = 1000;
 
 // Each obj size in bytes.
-static int objSize = 1022;
+static int objSize = 1000;
 
 #define MAX_KEYS_IN_ONE_GET (256)
 
@@ -79,6 +79,7 @@ static void help()
          "                       to 1 at 0.1 step. Def = -1.\n"
          "-k <mget>            : number of keys in one get(). Def = 1.\n"
          "-q <qps>             : each client target QPS. Def = 1000.\n"
+         "-z <obj size>        : size in bytes of an obj. Def = 1000.\n"
          "-h                   : this message.\n");
 }
 
@@ -584,7 +585,7 @@ int main(int argc, char *argv[]) {
   }
 
   int c;
-  while((c = getopt(argc, argv, "o:s:n:m:k:q:wh")) != EOF) {
+  while((c = getopt(argc, argv, "z:o:s:n:m:k:q:wh")) != EOF) {
     switch(c) {
       case 's':
         opt_servers = strdup(optarg);
@@ -610,6 +611,10 @@ int main(int argc, char *argv[]) {
         numKeysInOneGet = atoi(optarg);
         printf("fetch %d objs in one get()\n", numKeysInOneGet);
         assert(numKeysInOneGet <= MAX_KEYS_IN_ONE_GET);
+        break;
+      case 'z':
+        objSize = atoi(optarg);
+        printf("obj size = %d bytes\n", objSize);
         break;
       case 'q':
         perClientTargetQPS = atol(optarg);
