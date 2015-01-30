@@ -30,6 +30,9 @@ static void help();
 // Each client works on this many objs.
 static long perClientObjs = 1000;
 
+// Each client runs this many ops in one round.
+static long perClientOps = 1000;
+
 // Write ratio.
 static double writeMixRatio = -1;
 
@@ -48,7 +51,7 @@ static int numKeysInOneGet = 1;
 static long perClientTargetQPS = 1000;
 
 // Each obj size in bytes.
-static int objSize = 1010;
+static int objSize = 1022;
 
 #define MAX_KEYS_IN_ONE_GET (256)
 
@@ -64,7 +67,9 @@ static void help()
 {
   printf("Benchmark Memcached servers performance\n"
          "-s <s1:p1,s2:p2,...> : a list of servers. Must provide.\n"
-         "-n <num>             : each client works on this many objects.\n"
+         "-n <num>             : Number of objs each client sees.\n"
+         "                       Def = 1000.\n"
+         "-o <num of ops>      : Each client runs this many ops at one round.\n"
          "                       Def = 1000.\n"
          "-w                   : Create/write objects upfront. Default not.\n"
          "-m <0.x>             : write mix ratio of the benchmark. 0 is read only,\n"
@@ -214,7 +219,7 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
   int num_sizes = 1;  // We will use 1 size as obj size from the above array:  1020
 
   long total_numitems = perClientObjs * numprocs;
-  long total_ops = perClientObjs * numprocs;
+  long total_ops = perClientOps * numprocs;
 
   updateratio = 0;  // as a temp test.
   float ratio_start = 0.0;
@@ -579,7 +584,7 @@ int main(int argc, char *argv[]) {
   }
 
   int c;
-  while((c = getopt(argc, argv, "s:n:m:k:q:wh")) != EOF) {
+  while((c = getopt(argc, argv, "o:s:n:m:k:q:wh")) != EOF) {
     switch(c) {
       case 's':
         opt_servers = strdup(optarg);
@@ -588,6 +593,10 @@ int main(int argc, char *argv[]) {
       case 'n':
         perClientObjs = atol(optarg);
         printf("each client works on %ld objs\n", perClientObjs);
+        break;
+      case 'o':
+        perClientOps = atol(optarg);
+        printf("each client performs %ld ops\n", perClientObjs);
         break;
       case 'm':
         writeMixRatio = atof(optarg);
