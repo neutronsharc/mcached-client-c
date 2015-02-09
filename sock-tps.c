@@ -597,7 +597,7 @@ int main(int argc, char *argv[]) {
         break;
       case 'o':
         perClientOps = atol(optarg);
-        printf("each client performs %ld ops\n", perClientObjs);
+        printf("each client performs %ld ops\n", perClientOps);
         break;
       case 'm':
         writeMixRatio = atof(optarg);
