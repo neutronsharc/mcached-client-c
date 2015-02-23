@@ -216,8 +216,6 @@ int memcached_multi_get(memcached_st *memc,
 
 // Multi-process transaction throughput test.
 int tps_test(memcached_st *memc, int numprocs, int myid) {
-  //int sizes[6] = {1020, 2020, 3010};  // size should minus 2 (exclude "\r\n")
-  int num_sizes = 1;  // We will use 1 size as obj size from the above array:  1020
 
   long total_numitems = perClientObjs * numprocs;
   long total_ops = perClientOps * numprocs;
@@ -319,6 +317,32 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
     }
   }
 
+  // Warm up server-side backend DB by running random gets.
+  int warmups = 10000;
+  if(myid == 0) {
+    fprintf(stderr, "\n\n***** Each process will run %d cmds to "
+            "warmup server DB\n", warmups);
+  }
+  for (i = 0; i < warmups; i++) {
+    int key = GetRandom(perproc_items);
+    sprintf(pairs.key, "task-%d-key-%d", myid, key);
+    pairs.key_length = strlen(pairs.key);
+    char *tmpvalue = NULL;
+    value_length;
+    tmpvalue = memcached_get(memc,
+                             pairs.key, pairs.key_length,
+                             &value_length, &flags, &rc);
+    if(rc != MEMCACHED_SUCCESS) {
+      printf("[p_%d]: Error!! get key %s failed\n", myid, pairs.key);
+    }
+    if (tmpvalue != NULL) {
+      free(tmpvalue);
+    }
+  }
+#ifdef MPI
+    MPI_Barrier(MPI_COMM_WORLD);
+#endif
+
     ///////////////////////////////////////////////
     /////////////   1. transaction test ( set or get )
     unsigned long opStartTimeUs, opTimeUs;
@@ -416,7 +440,6 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
                 value_length -= 2;
               }
               if (m1 != i || value_length != objSize) {
-                //sizes[i % num_sizes]){
                 printf("[p_%d]: Error!! item-get(%s:%s): %ld:%ld, should be %ld:%d\n",
                        myid, pairs.key, tmpvalue, m1, value_length, i, objSize);
                 read_failure++;
@@ -434,7 +457,8 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
         }
 
         if ((j + 1) % 500000 == 0) {
-          printf("[p_%d]: has run %ld ops\n", myid, j + 1);
+          printf("[p_%d]: has run %ld ops (%ld get, %ld set)\n",
+                 myid, j + 1, opget, opset);
         }
       }
 
@@ -618,7 +642,7 @@ int main(int argc, char *argv[]) {
         break;
       case 'q':
         perClientTargetQPS = atol(optarg);
-        printf("each client target qps = %ld\n", perClientTargetQPS);
+        printf("per-client read target qps = %ld\n", perClientTargetQPS);
         break;
       case 'h':
         help();
