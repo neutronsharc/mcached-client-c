@@ -30,7 +30,7 @@ LIBS = -lmemcached -lrt -ldl -lbsd
 
 ifdef mpi
 	CC = $(mpi) -g
-	CFLAGS += -DMPI
+	CFLAGS += -DUSEMPI
 else
 	CC = gcc -g
 endif

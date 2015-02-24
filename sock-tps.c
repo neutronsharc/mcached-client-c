@@ -20,7 +20,7 @@
 #include "utilities.h"
 
 
-#ifdef MPI
+#ifdef USEMPI
 #include "mpi.h"
 #endif
 
@@ -277,7 +277,7 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
       fprintf(stderr, "[p_%d]: Each proc will create %ld objs upfront, obj-size=%d\n",
               myid, perproc_items, objSize);
     }
-#ifdef MPI
+#ifdef USEMPI
     MPI_Barrier(MPI_COMM_WORLD);
 #endif
     startTimeUs = TimeNowInUs();
@@ -301,7 +301,7 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
       // Rate limit to target qps.
       ThrottleForQPS(perClientTargetQPS, startTimeUs, i + 1);
     }
-#ifdef MPI
+#ifdef USEMPI
     MPI_Barrier(MPI_COMM_WORLD);
 #endif
     tus = TimeNowInUs() - startTimeUs;
@@ -339,7 +339,7 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
       free(tmpvalue);
     }
   }
-#ifdef MPI
+#ifdef USEMPI
     MPI_Barrier(MPI_COMM_WORLD);
 #endif
 
@@ -372,7 +372,7 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
 
       write_failure = 0;
       read_failure = 0;
-#ifdef MPI
+#ifdef USEMPI
       MPI_Barrier(MPI_COMM_WORLD);
 #endif
       startTimeUs = TimeNowInUs();
@@ -468,7 +468,7 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
       long allset, allget, allmiss;
       long all_read_failure = 0;
       long all_write_failure = 0;
-#ifdef MPI
+#ifdef USEMPI
       MPI_Reduce(&tps, &alltps, 1, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD);
       MPI_Reduce(&opset, &allset, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
       MPI_Reduce(&opget, &allget, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
@@ -477,7 +477,7 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
       MPI_Reduce(&write_failure, &all_write_failure, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
 #endif
       if(myid == 0) {
-#ifdef MPI
+#ifdef USEMPI
       fprintf(stderr, "-------- In total:  write ratio %d %%\n"
               "%ld get(%d objs in one get), %ld write, %ld get-miss, total-tps= %ld op/s, "
               "%ld read failure, %ld write failure\n",
@@ -509,7 +509,7 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
               myid, rd_lat50/1000.0, rd_lat90/1000.0, rd_lat95/1000.0,
               rd_lat99/1000.0, rd_lat999/1000.0, max_rd_lat/1000.0);
     }
-#ifdef MPI
+#ifdef USEMPI
     MPI_Barrier(MPI_COMM_WORLD);
 #endif
     if (updateratio > 0.0001) {
@@ -662,7 +662,7 @@ int main(int argc, char *argv[]) {
 
   int numprocs;
   int myid;
-#ifdef MPI
+#ifdef USEMPI
   MPI_Init(&argc, &argv);
   MPI_Comm_size(MPI_COMM_WORLD, &numprocs);
   MPI_Comm_rank(MPI_COMM_WORLD, &myid);
@@ -697,7 +697,7 @@ int main(int argc, char *argv[]) {
   tps_test(memc, numprocs, myid);
   ////////////////////////////////////////////////////////////////
 
-#ifdef MPI
+#ifdef USEMPI
   MPI_Finalize();
 #endif
 
