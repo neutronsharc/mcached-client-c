@@ -318,7 +318,7 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
   }
 
   // Warm up server-side backend DB by running random gets.
-  int warmups = 10000;
+  int warmups = 300000;
   if(myid == 0) {
     fprintf(stderr, "\n\n***** Each process will run %d cmds to "
             "warmup server DB\n", warmups);
