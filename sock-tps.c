@@ -317,8 +317,9 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
     }
   }
 
+  ///////////////////////////////////////////////////
   // Warm up server-side backend DB by running random gets.
-  int warmups = 300000;
+  int warmups = 500000;
   if(myid == 0) {
     fprintf(stderr, "\n\n***** Each process will run %d cmds to "
             "warmup server DB\n", warmups);
@@ -392,11 +393,12 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
           flags = i + 1;
 
           opStartTimeUs = TimeNowInUs();
-          rc = memcache_set_with_retry(memc, &pairs, 1);
+          rc = memcache_set_with_retry(memc, &pairs, 0);
 
           if(rc != MEMCACHED_SUCCESS) {
             printf("[p_%d]: set failure, val-len=%ld, ret=%d\n", myid, pairs.value_length, rc);
             write_failure++;
+            assert(0);
           }
           opTimeUs = TimeNowInUs() - opStartTimeUs;
           write_lats[opset] = (int)opTimeUs;
