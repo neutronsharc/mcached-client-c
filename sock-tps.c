@@ -204,7 +204,7 @@ int memcached_multi_get(memcached_st *memc,
     long vInKey, vInValue;
     return_key[return_key_length] = 0;
     sscanf(return_key, "task-%d-key-%ld", &idInKey, &vInKey);
-    sscanf(return_value, "task-%d-value-%ld", &idInValue, &vInValue);
+    sscanf(return_value, "valueof-task-%d-key-%ld", &idInValue, &vInValue);
     if (idInKey != idInValue || vInKey != vInValue) {
       printf("mget error: key = %s, value = %s\n", return_key, return_value);
     }
@@ -286,7 +286,7 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
       pairs.key_length = strlen(pairs.key);
 
       arc4random_buf(pairs.value, objSize);
-      sprintf(pairs.value, "task-%d-value-%ld", myid, i);
+      sprintf(pairs.value, "valueof-task-%d-key-%ld", myid, i);
       pairs.value_length = objSize;
       flags = i;
       rc = memcache_set_with_retry(memc, &pairs, 1);
@@ -319,7 +319,7 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
 
   ///////////////////////////////////////////////////
   // Warm up server-side backend DB by running random gets.
-  int warmups = 500000;
+  int warmups = 10000;
   if(myid == 0) {
     fprintf(stderr, "\n\n***** Each process will run %d cmds to "
             "warmup server DB\n", warmups);
@@ -387,7 +387,7 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
           sprintf(pairs.key, "task-%d-key-%ld", myid, i);
           pairs.key_length = strlen(pairs.key);
           arc4random_buf(pairs.value, objSize);
-          sprintf(pairs.value, "task-%d-value-%ld", myid, i);
+          sprintf(pairs.value, "valueof-task-%d-key-%ld", myid, i);
           pairs.value_length = objSize;
 
           flags = i + 1;
@@ -436,7 +436,7 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
             } else {
               int tmpid;
               long m1;
-              sscanf(tmpvalue, "task-%d-value-%ld", &tmpid, &m1);
+              sscanf(tmpvalue, "valueof-task-%d-key-%ld", &tmpid, &m1);
               if (value_length > objSize) {
                 // original version of mc-srv: the len = (real-data-len) + 2 (\r\n)
                 value_length -= 2;
