@@ -1,0 +1,26 @@
+
+
+==============================
+On AWS,   ssdcache002 (srv), ssdcache003(cli)
+
+4 client threads, obj size 10K
+
+
+Total objects 400000, total op 240000, each client creates 100000 objs, then runs 60000 ops, write-ratio=(0.000000 ~ 0.020000)
+    each obj size = 10000
+
+  ************  Write
+[p_0]: Each proc will create 100000 objs upfront, obj-size=10000
+ Upfront Write: each process has created 100000 objs, total 400000 objs, total-time = 78.105 sec
+ total write obj size = 3814.697 MB, tps = 5121.306 op/sec
+
+
+  ************   read
+ -------- In total:  write ratio 0 %
+ 240000 get(1 objs in one get), 0 write, 0 get-miss, total-tps= 4754 op/s, 0 read failure, 0 write failure
+ total-time= 50.722695 sec, tps = 1182.902 op/s
+
+[p-0]: read lat (ms): 50% = 0.798, 90% = 0.937, 95% = 0.999, 99% = 1.830, 99.9% = 9.613, maxlat= 202.141
+
+
+
