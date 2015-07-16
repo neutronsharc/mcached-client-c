@@ -19,7 +19,7 @@ libmemcached = /usr
 #INC = -I${libevent}/include -I${libsasl}/include -I${libmemcached}/include/libmemcached
 
 #CFLAGS = -c
-CFLAGS = -c ${INC}
+CFLAGS = -c ${INC} -DUSEMPI
 LDFLAGS = -g
 #-D_GNU_SOURCE -D_FILE_OFFSET_BITS=64
 #LDFLAGS = -L${libevent}/lib -L${libsasl}/lib -L/usr/lib

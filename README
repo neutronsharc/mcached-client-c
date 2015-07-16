@@ -2,3 +2,6 @@ memcached test program in C API that uses libmemcached.
 
 Can compile and launch with MPI, so that we can use multi-process clients to
 evaluate performance.
+
+How to run:
+mpirun -np 50 -f ./hostfile  ./sock-tps -s <srv:11211> -q 100000 -n 100000 -w -k 1 -z 10000 -o 50000 -m 0
