@@ -161,13 +161,10 @@ int memcache_set_with_retry(memcached_st *memc, KVPair *kvpair, int retry) {
                        expireTime, flags);
     if(rc == MEMCACHED_SUCCESS) {
       return rc;
-    } else if (rc == MEMCACHED_IN_PROGRESS) {
-      printf("key: %s, retry = %d\n", kvpair->key, retried);
-      retried++;
     } else {
       printf("key: %s, set error at retry %d: ret = %d\n",
              kvpair->key, retried, rc);
-      break;
+      retried++;
     }
   }
   return -1;
@@ -245,12 +242,18 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
 
   if (writeMixRatio >=0) {
     ratio_start = writeMixRatio;
-    ratio_end = writeMixRatio + 0.02; // doube precison can error with 0.xxx1
+    ratio_end = writeMixRatio + 0.02; // double precison can error with 0.xxx1
   }
   if(myid == 0) {
-    fprintf(stderr, "\n\n***********\nTotal objects %ld, total op %ld, each "
-            "client creates %ld objs, then runs %ld ops, write-ratio=(%f ~ %f)\n",
-            total_numitems, total_ops,  perproc_items, myops, ratio_start, ratio_end);
+    fprintf(stderr, "\n\n***********\nTotal objects %ld, total op %ld\n"
+            "%d clients, each client creates %ld objs\n"
+            "then runs %ld ops, write-ratio=%f\n",
+            total_numitems,
+            total_ops,
+            numprocs,
+            perproc_items,
+            myops,
+            ratio_start);
     fprintf(stderr, "\teach obj size = %d\n", objSize);
   }
 
@@ -270,8 +273,9 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
   }
 
   unsigned long startTimeUs;
+
   ///////////////////////////////////////////////
-  //////////////  0.  create the base data set
+  //  0.  create the base data set
   if (createObjects) {
     if(myid == 0) {
       fprintf(stderr, "[p_%d]: Each proc will create %ld objs upfront, obj-size=%d\n",
@@ -290,12 +294,12 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
       pairs.value_length = objSize;
       flags = i;
       rc = memcache_set_with_retry(memc, &pairs, 1);
-      if( rc != 0 ) {
+      if (rc != MEMCACHED_SUCCESS) {
         fprintf(stderr, "Error::  set, key=%s: val-len=%ld, ret = %d\n",
                 pairs.key, pairs.value_length, rc );
         write_failure++;
       }
-      if((i + 1) % 500000 == 0) {
+      if ((i + 1) % 500000 == 0) {
         printf("[p_%d]: set %ld items\n", myid, i + 1);
       }
       // Rate limit to target qps.
@@ -306,12 +310,12 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
 #endif
     tus = TimeNowInUs() - startTimeUs;
     if (myid == 0) {
-      fprintf(stderr, "Upfront Write: each process has created %ld objs, "
+      fprintf(stderr, "\nFinished upfront Write: each process has created %ld objs, "
                       "total %ld objs, total-time = %.3f sec\n",
                       perproc_items,
                       total_numitems,
                       tus / 1000000.0);
-      fprintf(stderr, "\t\ttotal write obj size = %.3f MB, tps = %.3f op/sec\n\n\n",
+      fprintf(stderr, "\ttotal write obj size = %.3f MB, write-tps = %.3f op/sec\n",
                       total_numitems * objSize / 1024.0 / 1024,
                       total_numitems / (tus / 1000000.0));
     }
@@ -319,6 +323,7 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
 
   ///////////////////////////////////////////////////
   // Warm up server-side backend DB by running random gets.
+  // For RocksDB backend, we need to warm up the block cache.
   int warmups = 0; //10000;
   if(myid == 0) {
     fprintf(stderr, "\n\n***** Each process will run %d cmds to "
@@ -396,9 +401,10 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
           rc = memcache_set_with_retry(memc, &pairs, 0);
 
           if(rc != MEMCACHED_SUCCESS) {
-            printf("[p_%d]: set failure, val-len=%ld, ret=%d\n", myid, pairs.value_length, rc);
+            fprintf(stderr, "[p_%d]: set failure, val-len=%ld, ret=%d\n",
+                    myid, pairs.value_length, rc);
             write_failure++;
-            assert(0);
+            //assert(0);
           }
           opTimeUs = TimeNowInUs() - opStartTimeUs;
           write_lats[opset] = (int)opTimeUs;
@@ -438,10 +444,12 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
               long m1;
               sscanf(tmpvalue, "valueof-task-%d-key-%ld", &tmpid, &m1);
               if (value_length > objSize) {
-                // original version of mc-srv: the len = (real-data-len) + 2 (\r\n)
-                value_length -= 2;
+                // Corner case: at original version of libmc, the ret len
+                // includes (real-data-len) + 2 (\r\n),
+                // At new mc this is not needed.
+                //value_length -= 2;
               }
-              if (m1 != i || value_length != objSize) {
+              if (tmpid != myid || m1 != i || value_length != objSize) {
                 printf("[p_%d]: Error!! item-get(%s:%s): %ld:%ld, should be %ld:%d\n",
                        myid, pairs.key, tmpvalue, m1, value_length, i, objSize);
                 read_failure++;
@@ -478,23 +486,30 @@ int tps_test(memcached_st *memc, int numprocs, int myid) {
       MPI_Reduce(&read_failure, &all_read_failure, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
       MPI_Reduce(&write_failure, &all_write_failure, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
 #endif
-      if(myid == 0) {
+      if (myid == 0) {
 #ifdef USEMPI
-      fprintf(stderr, "-------- In total:  write ratio %d %%\n"
-              "%ld get(%d objs in one get), %ld write, %ld get-miss, total-tps= %ld op/s, "
-              "%ld read failure, %ld write failure\n",
+      fprintf(stderr, "\n-------- Summary: write ratio %d %%\n"
+              "%ld get(%d objs in one get), %ld write, %ld get-miss, "
+              "%ld read failure, %ld write failure\n"
+              "total-tps= %ld op/s (read %ld op/s, write %ld op/s)\n",
               (int)(updateratio * 100),
-              allget, numKeysInOneGet, allset, allmiss, (long)(alltps),
-              all_read_failure, all_write_failure);
+              allget, numKeysInOneGet, allset, allmiss,
+              all_read_failure, all_write_failure,
+              (long)(alltps),
+              (long)(allget * 1000000.0 / tus),
+              (long)(allset * 1000000.0 / tus));
 #endif
-      fprintf(stderr, "[p_%d]: %ld ops, %ld overwrite, %ld get, %ld get-miss, "
+      fprintf(stderr, "\n[p_%d]: %ld ops, %ld overwrite, %ld get, %ld get-miss, "
               "%ld read failure, %ld write failure: \n"
-              "total-time= %f sec, tps = %.3f op/s\n",
+              "total-time= %f sec, tps = %.3f op/s\n\n",
               myid, myops, opset, opget, get_miss,
               read_failure, write_failure,
               tus / 1000000.0, tps);
     }
 
+#ifdef USEMPI
+    MPI_Barrier(MPI_COMM_WORLD);
+#endif
     // sort rd_lats[] and write_lats[], get: 50%, 90%, 95%, 99%, 99.9% latencies
     int rd_lat50, rd_lat90, rd_lat95, rd_lat99, rd_lat999;
     int owrt_lat50, owrt_lat90, owrt_lat95, owrt_lat99, owrt_lat999;
