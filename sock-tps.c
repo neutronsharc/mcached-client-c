@@ -53,6 +53,9 @@ static long perClientTargetQPS = 1000;
 // Each obj size in bytes.
 static int objSize = 1000;
 
+// An object expires in this many seconds. 0 never expires.
+static int expireSeconds = 0;
+
 #define MAX_KEYS_IN_ONE_GET (256)
 
 typedef struct KVPair KVPair;
@@ -79,6 +82,8 @@ static void help()
          "                       to 1 at 0.1 step. Def = -1.\n"
          "-k <mget>            : number of keys in one get(). Def = 1.\n"
          "-q <qps>             : each client target QPS. Def = 1000.\n"
+         "-x <expire>          : an object expires in this many seconds. \n"
+         "                       Def = 0 never expires.\n"
          "-z <obj size>        : size in bytes of an obj. Def = 1000.\n"
          "-h                   : this message.\n");
 }
@@ -148,7 +153,6 @@ int memcache_set_with_retry(memcached_st *memc, KVPair *kvpair, int retry) {
   // Usually 5 retries are enough even if the server is heavily stalled.
   retry = 100;
   memcached_return_t rc;
-  int expireTime = 0;
   int flags = 0;
   if (retry < 0) {
     retry = 0;
@@ -158,7 +162,7 @@ int memcache_set_with_retry(memcached_st *memc, KVPair *kvpair, int retry) {
     rc = memcached_set(memc,
                        kvpair->key, kvpair->key_length,
                        kvpair->value, kvpair->value_length,
-                       expireTime, flags);
+                       expireSeconds, flags);
     if(rc == MEMCACHED_SUCCESS) {
       return rc;
     } else {
@@ -626,7 +630,7 @@ int main(int argc, char *argv[]) {
   }
 
   int c;
-  while((c = getopt(argc, argv, "z:o:s:n:m:k:q:wh")) != EOF) {
+  while((c = getopt(argc, argv, "x:z:o:s:n:m:k:q:wh")) != EOF) {
     switch(c) {
       case 's':
         opt_servers = strdup(optarg);
@@ -635,6 +639,10 @@ int main(int argc, char *argv[]) {
       case 'n':
         perClientObjs = atol(optarg);
         printf("each client works on %ld objs\n", perClientObjs);
+        break;
+      case 'x':
+        expireSeconds = atoi(optarg);
+        printf("an object expires in %d seconds\n", expireSeconds);
         break;
       case 'o':
         perClientOps = atol(optarg);
